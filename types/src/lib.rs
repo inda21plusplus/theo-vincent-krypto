@@ -1,9 +1,14 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FileData {
     pub name: String,
     pub contents: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FileInfo {
+    pub name: String,
 }
 
 #[cfg(test)]
