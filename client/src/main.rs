@@ -14,7 +14,7 @@ struct ServerInfo {
 
 impl ServerInfo {
     pub async fn push_file(&self, path: &Path) -> Result<(), String> {
-        let mut file = File::open(path).map_err(|_| String::from("Error opening file"))?;
+        let mut file = File::open(path).map_err(|e| format!("Error opening file, error {}", e))?;
 
         let mut buffer = Vec::new();
 
@@ -63,10 +63,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // TODO ADD REAL URL AND METADATA
     let site = ServerInfo {
-        push_url: Url::parse("http://localhost/push")?,
-        pull_url: Url::parse("http://localhost/pull")?,
-        delete_url: Url::parse("http://localhost/delete")?,
-        get_url: Url::parse("http://localhost/get")?,
+        push_url: Url::parse("http://127.0.0.1:8000/push")?,
+        pull_url: Url::parse("http://127.0.0.1:8000/pull")?,
+        delete_url: Url::parse("http://127.0.0.1:8000/delete")?,
+        get_url: Url::parse("http://127.0.0.1:8000/get")?,
     };
 
     // TODO LOGIN
@@ -80,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     todo!("pull file from server")
                 }
                 "push" => {
-                    if let Err(msg) = site.push_file(Path::new(data)).await {
+                    if let Err(msg) = site.push_file(Path::new(data.trim())).await {
                         println!("{}", msg)
                     }
                 }
