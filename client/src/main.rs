@@ -1,19 +1,35 @@
 use std::io;
 use std::io::prelude::*;
+use std::process::exit;
 use std::{fs::File, path::Path};
 
 use reqwest::Url;
-use types::{FileData, FileInfo};
+use types::{CreateInfo, FileData, FileInfo, LoginInfo};
 
 struct ServerInfo {
-    push_url: Url,   // upload a file
-    pull_url: Url,   // request a file
-    delete_url: Url, // delete a file
-    get_url: Url,    // request metadata about smh
+    login_url: Url,          // login
+    create_account_url: Url, // create user account
+    push_url: Url,           // upload a file
+    pull_url: Url,           // request a file
+    delete_url: Url,         // delete a file
+    get_url: Url,            // request metadata about smh
+}
+
+enum CreateStatus {
+    Success,
+    AccountTaken,
+    Error,
+}
+
+enum LoginStatus {
+    Success,
+    WrongPassword,
+    AccountNotFound,
+    Error,
 }
 
 impl ServerInfo {
-    fn get_error_text(error : reqwest::Error) -> String {
+    fn get_error_text(error: reqwest::Error) -> String {
         if let Some(status) = error.status() {
             format!("Statuscode {}", status)
         } else {
@@ -22,8 +38,52 @@ impl ServerInfo {
             } else if error.is_decode() {
                 String::from("Decoding")
             } else {
-               String::from("Unknown Error")
+                String::from("Unknown Error")
             }
+        }
+    }
+
+    // 200 = success
+    // 401 or 418 = account already exists
+    pub async fn create(&self, name: String, password: String) -> Result<CreateStatus, String> {
+        match reqwest::Client::new()
+            .post(self.login_url.clone())
+            .json(&CreateInfo { name, password })
+            .send()
+            .await
+        {
+            Ok(response) => {
+                println!("Got, Statuscode: {}", response.status());
+                Ok(match response.status().as_u16() {
+                    200 => CreateStatus::Success,
+                    401 | 418 => CreateStatus::AccountTaken,
+                    _ => CreateStatus::Error,
+                })
+            }
+            Err(error) => Err(ServerInfo::get_error_text(error)),
+        }
+    }
+
+    // 200 = success
+    // 403 = wrong password
+    // 404 = account not found
+    pub async fn login(&self, name: String, password: String) -> Result<LoginStatus, String> {
+        match reqwest::Client::new()
+            .post(self.login_url.clone())
+            .json(&LoginInfo { name, password })
+            .send()
+            .await
+        {
+            Ok(response) => {
+                println!("Got, Statuscode: {}", response.status());
+                Ok(match response.status().as_u16() {
+                    200 => LoginStatus::Success,
+                    403 => LoginStatus::WrongPassword,
+                    404 => LoginStatus::AccountNotFound,
+                    _ => LoginStatus::Error,
+                })
+            }
+            Err(error) => Err(ServerInfo::get_error_text(error)),
         }
     }
 
@@ -39,9 +99,7 @@ impl ServerInfo {
                 // TODO dercypt and store data
                 Ok(())
             }
-            Err(error) => {
-                Err(ServerInfo::get_error_text(error))
-            }
+            Err(error) => Err(ServerInfo::get_error_text(error)),
         }
     }
 
@@ -72,9 +130,7 @@ impl ServerInfo {
 
                 Ok(())
             }
-            Err(error) => {
-                Err(ServerInfo::get_error_text(error))
-            }
+            Err(error) => Err(ServerInfo::get_error_text(error)),
         }
     }
 }
@@ -83,15 +139,82 @@ impl ServerInfo {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut buffer = String::new();
 
-    // TODO ADD REAL URL AND METADATA
+    // TODO ADD REAL URL
+    let main_url = "http://127.0.0.1:8000";
     let site = ServerInfo {
-        push_url: Url::parse("http://127.0.0.1:8000/push")?,
-        pull_url: Url::parse("http://127.0.0.1:8000/pull")?,
-        delete_url: Url::parse("http://127.0.0.1:8000/delete")?,
-        get_url: Url::parse("http://127.0.0.1:8000/get")?,
+        push_url: Url::parse(&format!("{}/push", main_url))?,
+        pull_url: Url::parse(&format!("{}/pull", main_url))?,
+        delete_url: Url::parse(&format!("{}/delete", main_url))?,
+        get_url: Url::parse(&format!("{}/get", main_url))?,
+        login_url: Url::parse(&format!("{}/login", main_url))?,
+        create_account_url: Url::parse(&format!("{}/create", main_url))?,
     };
 
     // TODO LOGIN
+
+    let mut username = String::new();
+    let mut userpassword = String::new();
+
+    println!("{}", format!("Login or Create account at {}", main_url));
+    loop {
+        buffer.clear();
+        io::stdin().read_line(&mut buffer)?;
+
+        match buffer.trim().split_once(" ") {
+            Some((prefix, data)) => match prefix {
+                "login" => {
+                    if let Some((name, psw)) = data.split_once(" ") {
+                        match site.login(name.to_string(), psw.to_string()).await {
+                            Ok(status) => match status {
+                                LoginStatus::Success => {
+                                    username = name.to_string();
+                                    userpassword = psw.to_string();
+                                    println!("Login successful");
+                                    break;
+                                }
+                                LoginStatus::WrongPassword => println!("Wrong password"),
+                                LoginStatus::AccountNotFound => println!("Account Not Found"),
+                                LoginStatus::Error => println!("Server error"),
+                            },
+                            Err(msg) => println!("{}", msg),
+                        }
+                    } else {
+                        println!("Invalid username/password input");
+                    }
+                }
+                "create" => {
+                    if let Some((name, psw)) = data.split_once(" ") {
+                        match site.create(name.to_string(), psw.to_string()).await {
+                            Ok(status) => match status {
+                                CreateStatus::Success => {
+                                    username = name.to_string();
+                                    userpassword = psw.to_string();
+                                    println!("Login successful");
+                                    break;
+                                }
+                                CreateStatus::AccountTaken => println!("Account already taken"),
+                                CreateStatus::Error => println!("Server error"),
+                            },
+                            Err(msg) => println!("{}", msg),
+                        }
+                    } else {
+                        println!("Invalid username/password input");
+                    }
+                }
+                _ => {
+                    println!("Invalid prefix")
+                }
+            },
+            _ => match &buffer[0..] {
+                "exit" | "quit" | "q" => {
+                    exit(0);
+                }
+                _ => {
+                    println!("Invalid login");
+                }
+            },
+        }
+    }
 
     loop {
         buffer.clear();
@@ -118,7 +241,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     todo!("List all files")
                 }
                 "exit" | "quit" | "q" => {
-                    break;
+                    exit(0);
                 }
                 _ => {
                     println!("Invalid input");
