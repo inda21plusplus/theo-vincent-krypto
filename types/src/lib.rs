@@ -11,6 +11,18 @@ pub struct FileInfo {
     pub name: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CreateInfo {
+    pub name: String,
+    pub password: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LoginInfo {
+    pub name: String,
+    pub password: String,
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
