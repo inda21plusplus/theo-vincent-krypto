@@ -47,7 +47,7 @@ impl ServerInfo {
     // 401 or 418 = account already exists
     pub async fn create(&self, name: String, password: String) -> Result<CreateStatus, String> {
         match reqwest::Client::new()
-            .post(self.login_url.clone())
+            .post(self.create_account_url.clone())
             .json(&CreateInfo { name, password })
             .send()
             .await
