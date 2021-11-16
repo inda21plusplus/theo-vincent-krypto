@@ -6,7 +6,7 @@ use std::{fs::File, path::Path};
 use reqwest::Url;
 use types::{CreateInfo, FileData, FileInfo, LoginInfo};
 
-use crate::crypto::{decrypt_bytes, test};
+use crate::crypto::decrypt_bytes;
 
 mod crypto;
 
