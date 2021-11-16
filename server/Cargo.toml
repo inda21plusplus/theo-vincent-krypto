@@ -9,3 +9,10 @@ edition = "2021"
 rocket = { version = "0.5.0-rc.1", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 types = { path = "../types" }
+ring = "0.16"
+lockfree = "0.5"
+rust-argon2 = "0.8"
+
+[dependencies.rocket_auth]
+version = "0.4.0"
+features = ["rusqlite"]

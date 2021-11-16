@@ -3,22 +3,15 @@ extern crate rocket;
 
 use rocket::data::FromData;
 use rocket::serde::{json::Json, Deserialize, Serialize};
-use types::{FileData, FileInfo};
+use rocket::State;
 
-struct User {
-    name: String,
-    passwd: String,
-    files: Files,
-}
+use rocket_auth::prelude::*;
 
-struct Files {
-    files: Vec<ServerFile>,
-}
+use types::{CreateInfo, FileData, FileInfo, LoginInfo};
 
-enum ServerFile {
-    Persistent,
-    Ephemeral(FileData),
-}
+mod data;
+
+use data::Database;
 
 #[get("/")]
 fn index() -> &'static str {
@@ -36,7 +29,26 @@ fn pull(info: Json<FileInfo>) {
     dbg!(info);
 }
 
-#[launch]
-fn rocket() -> _ {
-    rocket::build().mount("/", routes![index, push])
+#[post("/create", data = "<form>")]
+async fn create(form: Form<Signup>, auth: Auth<'_>) -> Result<&'static str, Error> {
+    auth.signup(&form).await?;
+    auth.login(&form.into());
+    Ok("You signed up.");
+}
+
+#[post("/login", data = "<form>")]
+fn login(form: rocket::serde::json::Json<Login>, auth: Auth<'_>) -> Result<&'static str, Error> {
+    auth.login(&form).await?;
+    Ok("You're logged in.")
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    let users = Users::open_sqlite("mydb.db").await?;
+
+    rocket::build()
+        .mount("/", routes![signup, login, logout])
+        .manage(users)
+        .launch();
+    Ok(())
 }
