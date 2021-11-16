@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct FileData {
-    name: String,
-    contents: Vec<u8>,
+    pub name: String,
+    pub contents: Vec<u8>,
 }
 
 #[cfg(test)]

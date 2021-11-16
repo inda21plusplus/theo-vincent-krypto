@@ -1,30 +1,58 @@
-use std::fs::File;
 use std::io;
 use std::io::prelude::*;
+use std::{fs::File, path::Path};
 
 use reqwest::Url;
+use types::FileData;
 
 struct ServerInfo {
-    pushUrl: Url,
-    pullUrl: Url,
+    push_url: Url,   // upload a file
+    pull_url: Url,   // request a file
+    delete_url: Url, // delete a file
+    get_url: Url,    // request metadata about smh
 }
 
 impl ServerInfo {
-    pub async fn push_file(&self, path: String) -> Result<(), String> {
-        if let Ok(mut file) = File::open(path) {
-            let mut buffer = String::new();
+    pub async fn push_file(&self, path: &Path) -> Result<(), String> {
+        let mut file = File::open(path).map_err(|_| String::from("Error opening file"))?;
 
-            file.read_to_string(&mut buffer); // TODO ADD ENCRYPTION
+        let mut buffer = Vec::new();
 
-            let response = reqwest::Client::new()
-                .post(self.pushUrl.clone())
-                .body(buffer) // TODO ADD METADATA ABOUT FILE IN JSON .json
-                .send()
-                .await;
+        file.read_to_end(&mut buffer)
+            .map_err(|_| String::from("Error reading file"))?; // TODO ADD ENCRYPTION
 
-            Ok(())
-        } else {
-            Err(String::from("Error opening file"))
+        let file_name = match path.file_name().and_then(|x| x.to_str()) {
+            Some(x) => x.to_string(),
+            _ => return Err(String::from("Error getting file name")),
+        };
+
+        match reqwest::Client::new()
+            .post(self.push_url.clone())
+            .json(&FileData {
+                name: file_name,
+                contents: buffer,
+            })
+            .send()
+            .await
+        {
+            Ok(response) => {
+                println!("Sent, Statuscode: {}", response.status());
+
+                Ok(())
+            }
+            Err(error) => {
+                if let Some(status) = error.status() {
+                    Err(format!("Statuscode {}", status))
+                } else {
+                    if error.is_timeout() {
+                        Err(String::from("Timeout"))
+                    } else if error.is_decode() {
+                        Err(String::from("Decoding"))
+                    } else {
+                        Err(String::from("Unknown Error"))
+                    }
+                }
+            }
         }
     }
 }
@@ -35,8 +63,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // TODO ADD REAL URL AND METADATA
     let site = ServerInfo {
-        pushUrl: Url::parse("http://localhost/push")?,
-        pullUrl: Url::parse("http://localhost/pull")?,
+        push_url: Url::parse("http://localhost/push")?,
+        pull_url: Url::parse("http://localhost/pull")?,
+        delete_url: Url::parse("http://localhost/delete")?,
+        get_url: Url::parse("http://localhost/get")?,
     };
 
     // TODO LOGIN
@@ -50,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     todo!("pull file from server")
                 }
                 "push" => {
-                    if let Err(msg) = site.push_file(data.to_string()).await {
+                    if let Err(msg) = site.push_file(Path::new(data)).await {
                         println!("{}", msg)
                     }
                 }
@@ -58,17 +88,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("Invalid prefix")
                 }
             },
-            _ => {
-                match &buffer[0..] {
-                    "list" => {
-                        todo!("List all files")
-                    }
-                    _ => {
-                        println!("Invalid input");
-                    }
+            _ => match &buffer[0..] {
+                "list" => {
+                    todo!("List all files")
                 }
-                
-            }
+                _ => {
+                    println!("Invalid input");
+                }
+            },
         }
     }
 
