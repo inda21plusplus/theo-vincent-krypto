@@ -3,7 +3,7 @@ extern crate rocket;
 
 use rocket::data::FromData;
 use rocket::serde::{json::Json, Deserialize, Serialize};
-use types::FileData;
+use types::{FileData, FileInfo};
 
 struct User {
     name: String,
@@ -11,27 +11,13 @@ struct User {
     files: Files,
 }
 
-struct Files {}
-
-#[derive(Serialize, Deserialize)]
-struct Upload<'r> {
-    name: &'r str,
-    contents: &'r [u8],
+struct Files {
+    files: Vec<ServerFile>,
 }
 
-struct OwnedUpload {
-    name: String,
-    contents: Vec<u8>,
-}
-
-impl<'r> Upload<'r> {
-    pub fn to_owned(&self) -> OwnedUpload {
-        let Upload { name, contents } = self;
-        OwnedUpload {
-            name: name.to_string(),
-            contents: contents.to_vec(),
-        }
-    }
+enum ServerFile {
+    Persistent,
+    Ephemeral(FileData),
 }
 
 #[get("/")]
@@ -40,11 +26,17 @@ fn index() -> &'static str {
 }
 
 #[post("/push", format = "json", data = "<file>")]
-async fn push_file(file: Json<FileData>) -> std::io::Result<()> {
-    Ok(())
+fn push(file: Json<FileData>) {
+    println!("{}", file.name);
+    println!("{}", std::str::from_utf8(&file.contents[..]).unwrap());
+}
+
+#[post("/pull", format = "json", data = "<info>")]
+fn pull(info: Json<FileInfo>) {
+    dbg!(info);
 }
 
 #[launch]
 fn rocket() -> _ {
-    rocket::build().mount("/", routes![index, push_file])
+    rocket::build().mount("/", routes![index, push])
 }
