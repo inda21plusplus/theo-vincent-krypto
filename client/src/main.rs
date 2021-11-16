@@ -3,7 +3,7 @@ use std::io::prelude::*;
 use std::{fs::File, path::Path};
 
 use reqwest::Url;
-use types::FileData;
+use types::{FileData, FileInfo};
 
 struct ServerInfo {
     push_url: Url,   // upload a file
@@ -13,8 +13,40 @@ struct ServerInfo {
 }
 
 impl ServerInfo {
+    fn get_error_text(error : reqwest::Error) -> String {
+        if let Some(status) = error.status() {
+            format!("Statuscode {}", status)
+        } else {
+            if error.is_timeout() {
+                String::from("Timeout")
+            } else if error.is_decode() {
+                String::from("Decoding")
+            } else {
+               String::from("Unknown Error")
+            }
+        }
+    }
+
+    pub async fn pull_file(&self, file_name: String) -> Result<(), String> {
+        match reqwest::Client::new()
+            .get(self.pull_url.clone())
+            .json(&FileInfo { name: file_name })
+            .send()
+            .await
+        {
+            Ok(response) => {
+                println!("Got, Statuscode: {}", response.status());
+                // TODO dercypt and store data
+                Ok(())
+            }
+            Err(error) => {
+                Err(ServerInfo::get_error_text(error))
+            }
+        }
+    }
+
     pub async fn push_file(&self, path: &Path) -> Result<(), String> {
-        let mut file = File::open(path).map_err(|e| format!("Error opening file, error {}", e))?;
+        let mut file = File::open(path).map_err(|e| format!("Error opening file, {}", e))?;
 
         let mut buffer = Vec::new();
 
@@ -41,17 +73,7 @@ impl ServerInfo {
                 Ok(())
             }
             Err(error) => {
-                if let Some(status) = error.status() {
-                    Err(format!("Statuscode {}", status))
-                } else {
-                    if error.is_timeout() {
-                        Err(String::from("Timeout"))
-                    } else if error.is_decode() {
-                        Err(String::from("Decoding"))
-                    } else {
-                        Err(String::from("Unknown Error"))
-                    }
-                }
+                Err(ServerInfo::get_error_text(error))
             }
         }
     }
@@ -74,10 +96,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         io::stdin().read_line(&mut buffer)?;
 
-        match buffer.split_once(" ") {
+        match buffer.trim().split_once(" ") {
             Some((prefix, data)) => match prefix {
                 "pull" => {
-                    todo!("pull file from server")
+                    if let Err(msg) = site.pull_file(data.to_string()).await {
+                        println!("{}", msg)
+                    }
                 }
                 "push" => {
                     if let Err(msg) = site.push_file(Path::new(data.trim())).await {
@@ -91,6 +115,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ => match &buffer[0..] {
                 "list" => {
                     todo!("List all files")
+                }
+                "exit" | "quit" | "q" => {
+                    break;
                 }
                 _ => {
                     println!("Invalid input");
