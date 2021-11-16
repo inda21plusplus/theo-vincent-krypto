@@ -6,6 +6,10 @@ use std::{fs::File, path::Path};
 use reqwest::Url;
 use types::{CreateInfo, FileData, FileInfo, LoginInfo};
 
+use crate::crypto::{decrypt_bytes, test};
+
+mod crypto;
+
 struct ServerInfo {
     login_url: Url,          // login
     create_account_url: Url, // create user account
@@ -48,7 +52,10 @@ impl ServerInfo {
     pub async fn create(&self, name: String, password: String) -> Result<CreateStatus, String> {
         match reqwest::Client::new()
             .post(self.create_account_url.clone())
-            .json(&CreateInfo { name, password })
+            .json(&CreateInfo {
+                name: name.clone(),
+                password: crypto::hash_password(name, password),
+            })
             .send()
             .await
         {
@@ -70,7 +77,10 @@ impl ServerInfo {
     pub async fn login(&self, name: String, password: String) -> Result<LoginStatus, String> {
         match reqwest::Client::new()
             .post(self.login_url.clone())
-            .json(&LoginInfo { name, password })
+            .json(&LoginInfo {
+                name: name.clone(),
+                password: crypto::hash_password(name, password),
+            })
             .send()
             .await
         {
@@ -87,7 +97,7 @@ impl ServerInfo {
         }
     }
 
-    pub async fn pull_file(&self, file_name: String) -> Result<(), String> {
+    pub async fn pull_file(&self, file_name: String, password: String) -> Result<(), String> {
         match reqwest::Client::new()
             .get(self.pull_url.clone())
             .json(&FileInfo { name: file_name })
@@ -96,31 +106,43 @@ impl ServerInfo {
         {
             Ok(response) => {
                 println!("Got, Statuscode: {}", response.status());
-                // TODO dercypt and store data
+                let file_data = serde_json::from_str::<FileData>(
+                    &response
+                        .text()
+                        .await
+                        .map_err(|e| format!("Error reading data, {}", e))?,
+                )
+                .map_err(|e| format!("Error parsing data, {}", e))?;
+
+                let decrypted_bytes = decrypt_bytes(file_data.contents, password, file_data.nonce);
+
                 Ok(())
             }
             Err(error) => Err(ServerInfo::get_error_text(error)),
         }
     }
 
-    pub async fn push_file(&self, path: &Path) -> Result<(), String> {
+    pub async fn push_file(&self, path: &Path, password: String) -> Result<(), String> {
         let mut file = File::open(path).map_err(|e| format!("Error opening file, {}", e))?;
-
-        let mut buffer = Vec::new();
-
-        file.read_to_end(&mut buffer)
-            .map_err(|_| String::from("Error reading file"))?; // TODO ADD ENCRYPTION
 
         let file_name = match path.file_name().and_then(|x| x.to_str()) {
             Some(x) => x.to_string(),
             _ => return Err(String::from("Error getting file name")),
         };
 
+        let mut buffer = Vec::new();
+
+        file.read_to_end(&mut buffer)
+            .map_err(|_| String::from("Error reading file"))?; // TODO ADD ENCRYPTION
+
+        let (nonce, encrypted_file) = crypto::encrypt_bytes(buffer, password)?;
+
         match reqwest::Client::new()
             .post(self.push_url.clone())
             .json(&FileData {
                 name: file_name,
-                contents: buffer,
+                contents: encrypted_file,
+                nonce,
             })
             .send()
             .await
@@ -137,8 +159,6 @@ impl ServerInfo {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut buffer = String::new();
-
     // TODO ADD REAL URL
     let main_url = "http://127.0.0.1:8000";
     let site = ServerInfo {
@@ -150,12 +170,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         create_account_url: Url::parse(&format!("{}/create", main_url))?,
     };
 
-    // TODO LOGIN
+    println!("{}", format!("Login or Create account at {}", main_url));
 
     let mut username = String::new();
     let mut userpassword = String::new();
-
-    println!("{}", format!("Login or Create account at {}", main_url));
+    let mut buffer = String::new();
     loop {
         buffer.clear();
         io::stdin().read_line(&mut buffer)?;
@@ -223,12 +242,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match buffer.trim().split_once(" ") {
             Some((prefix, data)) => match prefix {
                 "pull" => {
-                    if let Err(msg) = site.pull_file(data.to_string()).await {
+                    if let Err(msg) = site.pull_file(data.to_string(), userpassword.clone()).await {
                         println!("{}", msg)
                     }
                 }
                 "push" => {
-                    if let Err(msg) = site.push_file(Path::new(data.trim())).await {
+                    if let Err(msg) = site
+                        .push_file(Path::new(data.trim()), userpassword.clone())
+                        .await
+                    {
                         println!("{}", msg)
                     }
                 }

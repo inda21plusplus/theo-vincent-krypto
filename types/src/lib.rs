@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FileData {
     pub name: String,
+    pub nonce: [u8; 12],
     pub contents: Vec<u8>,
 }
 

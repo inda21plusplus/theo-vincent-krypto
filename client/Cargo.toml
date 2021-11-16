@@ -10,3 +10,8 @@ regex = "1"
 reqwest = { version = "0.11", features = ["json", "multipart"] }
 tokio = { version = "1", features = ["full"] }
 types = { path = "../types" }
+aes-gcm-siv = "0.10.3"
+rand = "0.8.4"
+rust-argon2 = "0.8"
+
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
