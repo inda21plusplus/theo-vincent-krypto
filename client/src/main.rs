@@ -94,6 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO LOGIN
 
     loop {
+        buffer.clear();
         io::stdin().read_line(&mut buffer)?;
 
         match buffer.trim().split_once(" ") {
