@@ -5,11 +5,16 @@ fn generate_random_nonce() -> [u8; 12] {
     rng.gen::<[u8; 12]>()
 }
 
+// TODO KEY NOT PASSWORD?
+// TODO SIGNATURE?
+// TODO FILE NAME STUFF
+
 /** password in plain text, returns decrypted message */
 pub fn decrypt_bytes(bytes: Vec<u8>, password: String, nonce_bytes: [u8; 12])  -> Result<Vec<u8>, String>{
     use aes_gcm_siv::aead::{Aead, NewAead};
     use aes_gcm_siv::{Aes256GcmSiv, Key, Nonce}; // Or `Aes128GcmSiv`
 
+    // TODO convert password to 256-bit
     let key = Key::from_slice(password.as_bytes());
     let cipher = Aes256GcmSiv::new(key);
 

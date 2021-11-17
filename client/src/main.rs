@@ -6,7 +6,7 @@ use std::{fs::File, path::Path};
 use reqwest::Url;
 use types::{CreateInfo, FileData, FileInfo, LoginInfo};
 
-use crate::crypto::decrypt_bytes;
+use crate::crypto::{decrypt_bytes, hash_password};
 
 mod crypto;
 
@@ -97,10 +97,19 @@ impl ServerInfo {
         }
     }
 
-    pub async fn pull_file(&self, file_name: String, password: String) -> Result<(), String> {
+    pub async fn pull_file(
+        &self,
+        file_name: String,
+        username: String,
+        password: String,
+    ) -> Result<(), String> {
+        let hash_name = hash_password(username + &password, file_name.clone());
+
         match reqwest::Client::new()
             .get(self.pull_url.clone())
-            .json(&FileInfo { name: file_name })
+            .json(&FileInfo {
+                name_hash: hash_name,
+            })
             .send()
             .await
         {
@@ -114,7 +123,13 @@ impl ServerInfo {
                 )
                 .map_err(|e| format!("Error parsing data, {}", e))?;
 
-                let decrypted_bytes = decrypt_bytes(file_data.contents, password, file_data.nonce);
+                let decrypted_bytes = decrypt_bytes(file_data.contents, password, file_data.nonce)?;
+
+                let mut file =
+                    File::create(file_name).map_err(|e| format!("Error creating file, {}", e))?;
+
+                file.write_all(&decrypted_bytes)
+                    .map_err(|e| format!("Error writing file, {}", e))?;
 
                 Ok(())
             }
@@ -122,7 +137,12 @@ impl ServerInfo {
         }
     }
 
-    pub async fn push_file(&self, path: &Path, password: String) -> Result<(), String> {
+    pub async fn push_file(
+        &self,
+        path: &Path,
+        username: String,
+        password: String,
+    ) -> Result<(), String> {
         let mut file = File::open(path).map_err(|e| format!("Error opening file, {}", e))?;
 
         let file_name = match path.file_name().and_then(|x| x.to_str()) {
@@ -135,14 +155,21 @@ impl ServerInfo {
         file.read_to_end(&mut buffer)
             .map_err(|_| String::from("Error reading file"))?; // TODO ADD ENCRYPTION
 
-        let (nonce, encrypted_file) = crypto::encrypt_bytes(buffer, password)?;
+        let (nonce, encrypted_file) = crypto::encrypt_bytes(buffer, password.clone())?;
+        let (nonce_name, encrypted_file_name) =
+            crypto::encrypt_bytes(file_name.as_bytes().to_vec(), password.clone())?;
+
+        // salt is username + password to make sure that storing a file with the same file_name as password will not give the same hash as the password hash
+        let hash_name = hash_password(username + &password, file_name);
 
         match reqwest::Client::new()
             .post(self.push_url.clone())
             .json(&FileData {
-                name: file_name,
+                name: encrypted_file_name,
                 contents: encrypted_file,
                 nonce,
+                name_nonce: nonce_name,
+                name_hash: hash_name,
             })
             .send()
             .await
@@ -170,11 +197,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         create_account_url: Url::parse(&format!("{}/create", main_url))?,
     };
 
-    println!("{}", format!("Login or Create account at {}", main_url));
+    let mut buffer = String::new();
+    let mut username = String::from("admin");
+    let mut userpassword = String::from("hunter2");
+    /*println!("{}", format!("Login or Create account at {}", main_url));
 
     let mut username = String::new();
     let mut userpassword = String::new();
-    let mut buffer = String::new();
     loop {
         buffer.clear();
         io::stdin().read_line(&mut buffer)?;
@@ -233,7 +262,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             },
         }
-    }
+    }*/
 
     loop {
         buffer.clear();
@@ -242,13 +271,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match buffer.trim().split_once(" ") {
             Some((prefix, data)) => match prefix {
                 "pull" => {
-                    if let Err(msg) = site.pull_file(data.to_string(), userpassword.clone()).await {
+                    if let Err(msg) = site
+                        .pull_file(data.to_string(), username.clone(), userpassword.clone())
+                        .await
+                    {
                         println!("{}", msg)
                     }
                 }
                 "push" => {
                     if let Err(msg) = site
-                        .push_file(Path::new(data.trim()), userpassword.clone())
+                        .push_file(
+                            Path::new(data.trim()),
+                            username.clone(),
+                            userpassword.clone(),
+                        )
                         .await
                     {
                         println!("{}", msg)
