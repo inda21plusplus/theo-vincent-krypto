@@ -33,7 +33,7 @@ fn pull(info: Json<FileInfo>) {
 #[post("/create", data = "<form>")]
 async fn create(form: Form<Signup>, auth: Auth<'_>) -> Result<&'static str, Error> {
     auth.signup(&form).await?;
-    auth.login(&form.into());
+    auth.login(&form.into()).await?;
     Ok("You signed up.")
 }
 
@@ -46,14 +46,11 @@ async fn login(
     Ok("You're logged in.")
 }
 
-#[tokio::main]
-async fn launch() -> Result<(), Error> {
-    let users = Users::open_rusqlite("mydb.db").await?;
+#[launch]
+fn launch() -> _ {
+    let users = Users::open_rusqlite("mydb.db").unwrap();
 
     rocket::build()
-        .mount("/", routes![push, pull, signup, login, logout])
+        .mount("/", routes![push, pull, create, login])
         .manage(users)
-        .launch();
-
-    Ok(())
 }
