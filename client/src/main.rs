@@ -102,6 +102,7 @@ impl ServerInfo {
         file_name: String,
         username: String,
         password: String,
+        key_pair: &ring::signature::RsaKeyPair,
     ) -> Result<(), String> {
         let hash_name = hash_password(username + &password, file_name.clone());
 
@@ -125,6 +126,11 @@ impl ServerInfo {
 
                 let decrypted_bytes = decrypt_bytes(file_data.contents, password, file_data.nonce)?;
 
+                let signature = crypto::sign_file(&decrypted_bytes, file_name.as_bytes(), key_pair).map_err(|_e| String::from("Error verifying signature"))?;
+                if signature != file_data.signature {
+                    return Err(String::from("Invalid signature"));
+                }
+                
                 let mut file =
                     File::create(file_name).map_err(|e| format!("Error creating file, {}", e))?;
 
@@ -142,6 +148,7 @@ impl ServerInfo {
         path: &Path,
         username: String,
         password: String,
+        key_pair: &ring::signature::RsaKeyPair,
     ) -> Result<(), String> {
         let mut file = File::open(path).map_err(|e| format!("Error opening file, {}", e))?;
 
@@ -154,6 +161,8 @@ impl ServerInfo {
 
         file.read_to_end(&mut buffer)
             .map_err(|_| String::from("Error reading file"))?; // TODO ADD ENCRYPTION
+
+        let signature = crypto::sign_file(&buffer, file_name.as_bytes(), key_pair).map_err(|e| String::from("Error signing file"))?;
 
         let (nonce, encrypted_file) = crypto::encrypt_bytes(buffer, password.clone())?;
         let (nonce_name, encrypted_file_name) =
@@ -170,6 +179,7 @@ impl ServerInfo {
                 nonce,
                 name_nonce: nonce_name,
                 name_hash: hash_name,
+                signature
             })
             .send()
             .await
@@ -196,6 +206,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         login_url: Url::parse(&format!("{}/login", main_url))?,
         create_account_url: Url::parse(&format!("{}/create", main_url))?,
     };
+
+    let key_path = Path::new("test-rsa-key.pk8");
+    let keypair_unchecked = crypto::get_key_pair(key_path);
+    if keypair_unchecked.is_err() {
+        println!("Error getting keypair at {}", key_path.as_os_str().to_str().unwrap_or_else(|| "ERROR"));
+        exit(1);
+    }
+    let keypair = keypair_unchecked.unwrap();
 
     let mut buffer = String::new();
     let mut username = String::from("admin");
@@ -272,7 +290,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some((prefix, data)) => match prefix {
                 "pull" => {
                     if let Err(msg) = site
-                        .pull_file(data.to_string(), username.clone(), userpassword.clone())
+                        .pull_file(data.to_string(), username.clone(), userpassword.clone(),&keypair)
                         .await
                     {
                         println!("{}", msg)
@@ -284,6 +302,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             Path::new(data.trim()),
                             username.clone(),
                             userpassword.clone(),
+                            &keypair,
                         )
                         .await
                     {

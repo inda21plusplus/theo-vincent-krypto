@@ -7,6 +7,7 @@ pub struct FileData {
     pub name_hash: String, // used to look up the file
     pub nonce: [u8; 12],
     pub contents: Vec<u8>,
+    pub signature: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
