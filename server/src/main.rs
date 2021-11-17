@@ -6,6 +6,8 @@ use rocket::form::Form;
 use rocket::serde::{json::Json, Deserialize, Serialize};
 use rocket::State;
 
+use std::sync::Mutex;
+
 use types::{CreateInfo, FileData, FileInfo, LoginInfo};
 
 mod data;
@@ -16,8 +18,8 @@ fn index() -> &'static str {
 }
 
 #[post("/push", format = "json", data = "<file>")]
-fn push(db: &State<data::Files>, file: Json<FileData>) {
-    db.add_file(*file);
+fn push(db: &State<Mutex<data::Files>>, file: Json<FileData>) {
+    db.lock().unwrap().add_file(file.into_inner());
 }
 
 #[post("/pull", format = "json", data = "<info>")]
@@ -31,5 +33,5 @@ fn launch() -> _ {
 
     rocket::build()
         .mount("/", routes![push, pull])
-        .manage(file_db)
+        .manage(Mutex::new(file_db))
 }
