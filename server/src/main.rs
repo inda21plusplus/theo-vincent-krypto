@@ -3,6 +3,7 @@ extern crate rocket;
 
 use rocket::data::FromData;
 use rocket::form::Form;
+use rocket::response;
 use rocket::serde::{json::Json, Deserialize, Serialize};
 use rocket::State;
 
@@ -23,8 +24,9 @@ fn push(db: &State<Mutex<data::Files>>, file: Json<FileData>) {
 }
 
 #[post("/pull", format = "json", data = "<info>")]
-fn pull(info: Json<FileInfo>) {
-    dbg!(info);
+fn pull(db: &State<Mutex<data::Files>>, info: Json<FileInfo>) -> Json<Option<FileData>> {
+    let file = (*db.lock().unwrap()).get_file(info.into_inner()).clone();
+    Json(file)
 }
 
 #[launch]

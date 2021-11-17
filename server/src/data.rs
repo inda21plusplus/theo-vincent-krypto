@@ -2,7 +2,7 @@ use ring::digest::{digest, Digest, SHA256};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
-use types::FileData;
+use types::{FileData, FileInfo};
 
 const MAX_DEPTH: u64 = 8;
 const MAX_FILE_ID: u64 = 1 << MAX_DEPTH;
@@ -23,6 +23,14 @@ impl Files {
         self.file_map.insert(data.name_hash.clone(), id);
         let node = self.tree.get_file(id);
         *node = Some(data);
+    }
+
+    pub fn get_file(&mut self, info: FileInfo) -> &Option<FileData> {
+        let id = self.file_map.get(&info.name_hash);
+        &*self.tree.get_file(match id {
+            Some(x) => *x,
+            None => return &None,
+        })
     }
 }
 
