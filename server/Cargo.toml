@@ -12,7 +12,3 @@ types = { path = "../types" }
 ring = "0.16"
 lockfree = "0.5"
 rust-argon2 = "0.8"
-
-[dependencies.rocket_auth]
-version = "0.4.0"
-features = ["rusqlite"]

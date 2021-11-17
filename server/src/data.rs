@@ -1,69 +1,115 @@
-use argon2::{self, Config};
-use lockfree::map::Map;
+use ring::digest::{digest, Digest, SHA256};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
 use types::FileData;
 
-#[derive(Debug)]
-pub struct User {
-    name: String,
-    passwd: String,
-    files: Files,
-}
+const MAX_DEPTH: u64 = 8;
+const MAX_FILE_ID: u64 = 1 << MAX_DEPTH;
 
 #[derive(Debug, Default)]
 pub struct Files {
-    files: Vec<ServerFile>,
+    file_id: u64,
+    tree: MerkleTree,
+    file_map: HashMap<String, u64>,
+}
+
+impl Files {
+    pub fn new() {}
+
+    pub fn add_file(&mut self, data: FileData) {
+        let id = self.file_id;
+        self.file_id += 1;
+        self.file_map.insert(data.name_hash.clone(), id);
+        let node = self.tree.get_file(id);
+        *node = Some(data);
+    }
 }
 
 #[derive(Debug)]
-pub enum ServerFile {
-    Persistent,
-    Ephemeral(FileData),
+pub struct MerkleTree {
+    root: Node,
 }
 
-pub struct Database {
-    list: Map<String, RwLock<User>>,
-}
-
-impl Database {
+impl MerkleTree {
     pub fn new() -> Self {
-        Self { list: Map::new() }
-    }
-
-    pub fn create_user(&self, name: String, passwd: String) -> bool {
-        if self.list.get(&name).is_some() {
-            false
-        } else {
-            let user = User {
-                name: name.clone(),
-                passwd,
-                files: Files::default(),
-            };
-
-            let res = self.list.insert(name, RwLock::new(user));
-
-            assert!(res.is_none());
-
-            true
+        Self {
+            root: Self::rec_create_nodes(MAX_DEPTH, 0),
         }
     }
 
-    pub fn authenticate(&self, name: &str, passwd: &str) -> AccountStatus {
-        if let Some(user) = self.list.get(&name.to_string()) {
-            if &user.val().read().unwrap().passwd == passwd {
-                AccountStatus::Success
-            } else {
-                AccountStatus::WrongPassword
+    fn rec_create_nodes(depth: u64, id: u64) -> Node {
+        if depth == 0 {
+            Node::Leaf {
+                id: id,
+                hash: digest(&SHA256, &[]),
+                data: None,
             }
         } else {
-            AccountStatus::NonExistent
+            let left = Box::new(Self::rec_create_nodes(depth - 1, id << 1));
+            let right = Box::new(Self::rec_create_nodes(depth - 1, (id << 1) | 1));
+
+            let mut combined = left.hash_bytes().to_vec();
+            combined.extend_from_slice(right.hash_bytes());
+
+            Node::Branch {
+                hash: digest(&SHA256, &combined),
+                left,
+                right,
+            }
         }
+    }
+
+    pub fn get_root_hash(&self) -> &[u8] {
+        self.root.hash_bytes()
+    }
+
+    pub fn get_file(&mut self, id: u64) -> &mut Option<FileData> {
+        self.root.get_file(id)
     }
 }
 
-pub enum AccountStatus {
-    WrongPassword,
-    NonExistent,
-    Success,
+#[derive(Debug)]
+pub enum Node {
+    Leaf {
+        id: u64,
+        data: Option<FileData>,
+        hash: Digest,
+    },
+    Branch {
+        hash: Digest,
+        left: Box<Node>,
+        right: Box<Node>,
+    },
+}
+
+const LEFT: u64 = 0;
+const RIGHT: u64 = 1;
+
+impl Node {
+    pub fn get_file(&mut self, id: u64) -> &mut Option<FileData> {
+        match self {
+            Node::Branch { left, right, .. } => match id & 1 {
+                0 => left,
+                1 => right,
+                _ => unreachable!(),
+            }
+            .get_file(id >> 1),
+            Node::Leaf { ref mut data, .. } => data,
+        }
+    }
+
+    pub fn hash_bytes(&self) -> &[u8] {
+        match self {
+            Node::Leaf { hash, .. } => hash,
+            Node::Branch { hash, .. } => hash,
+        }
+        .as_ref()
+    }
+}
+
+impl Default for MerkleTree {
+    fn default() -> MerkleTree {
+        MerkleTree::new()
+    }
 }
