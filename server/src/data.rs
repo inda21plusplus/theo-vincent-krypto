@@ -26,11 +26,20 @@ impl Files {
     }
 
     pub fn get_file(&mut self, info: FileInfo) -> &Option<FileData> {
-        let id = self.file_map.get(&info.name_hash);
-        &*self.tree.get_file(match id {
-            Some(x) => *x,
+        let id = match self.file_map.get(&info.name_hash) {
+            Some(x) => {
+                println!("Requested ID wasn't found (id: {})", info.name_hash);
+                *x
+            }
             None => return &None,
-        })
+        };
+        let f = &*self.tree.get_file(id);
+
+        if f.is_none() {
+            println!("File was empty (id: {})", info.name_hash);
+        }
+
+        f
     }
 }
 
