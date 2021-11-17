@@ -2,6 +2,7 @@
 extern crate rocket;
 
 use rocket::data::FromData;
+use rocket::form::Form;
 use rocket::serde::{json::Json, Deserialize, Serialize};
 use rocket::State;
 
@@ -33,22 +34,26 @@ fn pull(info: Json<FileInfo>) {
 async fn create(form: Form<Signup>, auth: Auth<'_>) -> Result<&'static str, Error> {
     auth.signup(&form).await?;
     auth.login(&form.into());
-    Ok("You signed up.");
+    Ok("You signed up.")
 }
 
 #[post("/login", data = "<form>")]
-fn login(form: rocket::serde::json::Json<Login>, auth: Auth<'_>) -> Result<&'static str, Error> {
+async fn login(
+    form: rocket::serde::json::Json<Login>,
+    auth: Auth<'_>,
+) -> Result<&'static str, Error> {
     auth.login(&form).await?;
     Ok("You're logged in.")
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
-    let users = Users::open_sqlite("mydb.db").await?;
+async fn launch() -> Result<(), Error> {
+    let users = Users::open_rusqlite("mydb.db").await?;
 
     rocket::build()
-        .mount("/", routes![signup, login, logout])
+        .mount("/", routes![push, pull, signup, login, logout])
         .manage(users)
         .launch();
+
     Ok(())
 }
