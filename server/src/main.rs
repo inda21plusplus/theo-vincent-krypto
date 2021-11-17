@@ -23,7 +23,7 @@ fn push(db: &State<Mutex<data::Files>>, file: Json<FileData>) {
     db.lock().unwrap().add_file(file.into_inner());
 }
 
-#[post("/pull", format = "json", data = "<info>")]
+#[get("/pull", format = "json", data = "<info>")]
 fn pull(db: &State<Mutex<data::Files>>, info: Json<FileInfo>) -> Json<Option<FileData>> {
     let file = (*db.lock().unwrap()).get_file(info.into_inner()).clone();
     Json(file)
