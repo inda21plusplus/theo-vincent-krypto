@@ -37,14 +37,16 @@ pub struct FileList {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FileListEntry {
-    pub name: String,
+    pub name_hash: String,
+    pub nonce: [u8; 12],
+    pub name: Vec<u8>,
+    pub name_nonce: [u8; 12],
     pub size: usize,
 }
 
-/// All the neighboring hashes required to compute a new top hash, the
-/// final one being the new top hash. Note, the server's newly
-/// computed file hash is not included.
+/// All the neighboring hashes required to compute a new top hash.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MerkleInfo {
-    hashes: Vec<Hash>,
+pub struct MerkleData {
+    pub top_hash: Hash,
+    pub hashes: Vec<Hash>,
 }

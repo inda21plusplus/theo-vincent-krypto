@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::env;
 use std::fs;
 use std::io::{self, prelude::*};
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
 static SAVE_DIR_VAR: &'static str = "SERVER_SAVE_DIR";
@@ -50,6 +51,34 @@ impl File {
 
     pub fn contents(&self) -> io::Result<Vec<u8>> {
         Ok(self.inner.borrow_mut().load()?.contents.clone())
+    }
+
+    pub fn name_hash(&self) -> String {
+        match self.inner.borrow().deref() {
+            RawFile::Disk(pf) => pf.name_hash.clone(),
+            RawFile::Memory(mf) => mf.name_hash.clone(),
+        }
+    }
+
+    pub fn name_nonce(&self) -> [u8; 12] {
+        match self.inner.borrow().deref() {
+            RawFile::Disk(pf) => pf.name_nonce,
+            RawFile::Memory(mf) => mf.name_nonce,
+        }
+    }
+
+    pub fn name(&self) -> Vec<u8> {
+        match self.inner.borrow().deref() {
+            RawFile::Disk(pf) => pf.name.clone(),
+            RawFile::Memory(mf) => mf.name.clone(),
+        }
+    }
+
+    pub fn nonce(&self) -> [u8; 12] {
+        match self.inner.borrow().deref() {
+            RawFile::Disk(pf) => pf.nonce,
+            RawFile::Memory(mf) => mf.nonce,
+        }
     }
 }
 

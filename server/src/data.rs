@@ -67,4 +67,16 @@ impl Files {
 
         f
     }
+
+    pub fn get_merkle_data(&mut self, name: &str) -> Option<types::MerkleData> {
+        let id = match self.file_map.get(name) {
+            Some(x) => {
+                println!("Requested ID wasn't found (id: {})", name);
+                *x
+            }
+            None => return None,
+        };
+
+        Some(self.tree.get_merkle_data_for_file(id))
+    }
 }

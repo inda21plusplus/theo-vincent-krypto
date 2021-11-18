@@ -61,6 +61,19 @@ impl MerkleTree {
     pub fn recompute_hashes(&mut self) {
         self.root.recompute_hash_if_dirty()
     }
+
+    pub fn get_merkle_data_for_file(&mut self, id: u64) -> types::MerkleData {
+        let mut v = Vec::new();
+        self.root.get_hashes_for_file(id, &mut v);
+        let v = v
+            .into_iter()
+            .map(|x| x.as_ref().to_vec())
+            .collect::<Vec<_>>();
+        types::MerkleData {
+            top_hash: self.root.digest().as_ref().to_vec(),
+            hashes: v,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -192,6 +205,23 @@ impl Node {
             Node::Branch { hash, .. } => hash,
         }
         .as_ref()
+    }
+
+    pub fn get_hashes_for_file(&self, id: u64, v: &mut Vec<Digest>) {
+        match self {
+            Node::Branch { left, right, .. } => match id & 1 {
+                0 => {
+                    v.push(right.digest().clone());
+                    left.get_hashes_for_file(id >> 1, v)
+                }
+                1 => {
+                    v.push(left.digest().clone());
+                    right.get_hashes_for_file(id >> 1, v)
+                }
+                _ => unreachable!(),
+            },
+            Node::Leaf { .. } => {}
+        }
     }
 }
 

@@ -9,7 +9,7 @@ use rocket::State;
 
 use std::sync::Mutex;
 
-use types::{FileData, FileInfo, FileList, FileListEntry};
+use types::{FileData, FileInfo, FileList, FileListEntry, MerkleData};
 
 mod data;
 mod file;
@@ -26,9 +26,15 @@ fn push(db: &State<Mutex<data::Files>>, file: Json<FileData>) {
 }
 
 #[get("/pull", format = "json", data = "<info>")]
-fn pull(db: &State<Mutex<data::Files>>, info: Json<FileInfo>) -> Json<Option<FileData>> {
-    let file = (*db.lock().unwrap()).get_file(info.into_inner());
-    Json(file)
+fn pull(
+    db: &State<Mutex<data::Files>>,
+    info: Json<FileInfo>,
+) -> Json<Option<(FileData, MerkleData)>> {
+    let mut lock = db.lock().unwrap();
+    let info = info.into_inner();
+    let file = lock.get_file(info.clone());
+    let data = lock.get_merkle_data(&info.name_hash).unwrap();
+    Json(file.map(|x| (x, data)))
 }
 
 #[get("/list")]
@@ -42,8 +48,11 @@ fn list(db: &State<Mutex<data::Files>>) -> Json<FileList> {
 
     for (name, file) in files.get_all_files() {
         list.list.push(FileListEntry {
-            name: name.to_string(),
+            name_hash: name.to_string(),
             size: file.size(),
+            name: file.name(),
+            nonce: file.nonce(),
+            name_nonce: file.name_nonce(),
         })
     }
 
