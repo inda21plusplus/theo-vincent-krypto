@@ -1,13 +1,13 @@
 use ring::digest::{digest, Digest, SHA256};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::RwLock;
-use types::{FileData, FileInfo};
+use types::{FileData as NetworkFileData, FileInfo};
 
-const MAX_DEPTH: u64 = 8;
-const MAX_FILE_ID: u64 = 1 << MAX_DEPTH;
+use std::io::{self, prelude::*};
 
-#[derive(Debug, Default)]
+use super::file::File;
+use super::merkle_tree::MerkleTree;
+
+#[derive(Debug)]
 pub struct Files {
     file_id: u64,
     tree: MerkleTree,
@@ -15,118 +15,56 @@ pub struct Files {
 }
 
 impl Files {
-    pub fn new() {}
+    pub fn new() -> Self {
+        Files {
+            file_id: 0,
+            tree: MerkleTree::new(),
+            file_map: HashMap::new(),
+        }
+    }
 
-    pub fn add_file(&mut self, data: FileData) {
+    pub fn get_all_files(&self) -> Vec<(&String, &File)> {
+        let mut list = vec![];
+        for (k, v) in &self.file_map {
+            if let Some(file) = self.tree.get_file(*v) {
+                list.push((k, file));
+            }
+        }
+        list
+    }
+
+    pub fn top_hash(&self) -> &Digest {
+        self.tree.top_hash()
+    }
+
+    pub fn add_file(&mut self, data: NetworkFileData) {
         let id = self.file_id;
         self.file_id += 1;
         self.file_map.insert(data.name_hash.clone(), id);
-        let node = self.tree.get_file(id);
-        *node = Some(data);
+        let node = self.tree.get_file_mut(id);
+        *node = Some(File::new(data));
+        self.tree.recompute_hashes();
     }
 
-    pub fn get_file(&mut self, info: FileInfo) -> &Option<FileData> {
+    pub fn get_file(&mut self, info: FileInfo) -> Option<NetworkFileData> {
         let id = match self.file_map.get(&info.name_hash) {
             Some(x) => {
                 println!("Requested ID wasn't found (id: {})", info.name_hash);
                 *x
             }
-            None => return &None,
+            None => return None,
         };
-        let f = &*self.tree.get_file(id);
+
+        let f = self
+            .tree
+            .get_file(id)
+            .as_ref()
+            .map(|x| x.file_data().unwrap());
 
         if f.is_none() {
             println!("File was empty (id: {})", info.name_hash);
         }
 
         f
-    }
-}
-
-#[derive(Debug)]
-pub struct MerkleTree {
-    root: Node,
-}
-
-impl MerkleTree {
-    pub fn new() -> Self {
-        Self {
-            root: Self::rec_create_nodes(MAX_DEPTH, 0),
-        }
-    }
-
-    fn rec_create_nodes(depth: u64, id: u64) -> Node {
-        if depth == 0 {
-            Node::Leaf {
-                id: id,
-                hash: digest(&SHA256, &[]),
-                data: None,
-            }
-        } else {
-            let left = Box::new(Self::rec_create_nodes(depth - 1, id << 1));
-            let right = Box::new(Self::rec_create_nodes(depth - 1, (id << 1) | 1));
-
-            let mut combined = left.hash_bytes().to_vec();
-            combined.extend_from_slice(right.hash_bytes());
-
-            Node::Branch {
-                hash: digest(&SHA256, &combined),
-                left,
-                right,
-            }
-        }
-    }
-
-    pub fn get_root_hash(&self) -> &[u8] {
-        self.root.hash_bytes()
-    }
-
-    pub fn get_file(&mut self, id: u64) -> &mut Option<FileData> {
-        self.root.get_file(id)
-    }
-}
-
-#[derive(Debug)]
-pub enum Node {
-    Leaf {
-        id: u64,
-        data: Option<FileData>,
-        hash: Digest,
-    },
-    Branch {
-        hash: Digest,
-        left: Box<Node>,
-        right: Box<Node>,
-    },
-}
-
-const LEFT: u64 = 0;
-const RIGHT: u64 = 1;
-
-impl Node {
-    pub fn get_file(&mut self, id: u64) -> &mut Option<FileData> {
-        match self {
-            Node::Branch { left, right, .. } => match id & 1 {
-                0 => left,
-                1 => right,
-                _ => unreachable!(),
-            }
-            .get_file(id >> 1),
-            Node::Leaf { ref mut data, .. } => data,
-        }
-    }
-
-    pub fn hash_bytes(&self) -> &[u8] {
-        match self {
-            Node::Leaf { hash, .. } => hash,
-            Node::Branch { hash, .. } => hash,
-        }
-        .as_ref()
-    }
-}
-
-impl Default for MerkleTree {
-    fn default() -> MerkleTree {
-        MerkleTree::new()
     }
 }
