@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::file::File;
 use ring::digest::{digest, Digest, SHA256};
+use types::Side;
 
 #[derive(Debug)]
 pub struct MerkleTree {
@@ -67,7 +68,7 @@ impl MerkleTree {
         self.root.get_hashes_for_file(id, &mut v);
         let v = v
             .into_iter()
-            .map(|x| x.as_ref().to_vec())
+            .map(|(side, dig)| (side, dig.as_ref().to_vec()))
             .collect::<Vec<_>>();
         types::MerkleData {
             top_hash: self.root.digest().as_ref().to_vec(),
@@ -207,15 +208,15 @@ impl Node {
         .as_ref()
     }
 
-    pub fn get_hashes_for_file(&self, id: u64, v: &mut Vec<Digest>) {
+    pub fn get_hashes_for_file(&self, id: u64, v: &mut Vec<(Side, Digest)>) {
         match self {
             Node::Branch { left, right, .. } => match id & 1 {
                 0 => {
-                    v.push(right.digest().clone());
+                    v.push((Side::Right, right.digest().clone()));
                     left.get_hashes_for_file(id >> 1, v)
                 }
                 1 => {
-                    v.push(left.digest().clone());
+                    v.push((Side::Left, left.digest().clone()));
                     right.get_hashes_for_file(id >> 1, v)
                 }
                 _ => unreachable!(),

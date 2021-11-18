@@ -48,5 +48,12 @@ pub struct FileListEntry {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MerkleData {
     pub top_hash: Hash,
-    pub hashes: Vec<Hash>,
+    pub hashes: Vec<(Side, Hash)>,
+}
+
+/// The side to append the given hash to
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Side {
+    Left,
+    Right,
 }
