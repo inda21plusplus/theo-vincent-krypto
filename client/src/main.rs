@@ -17,6 +17,7 @@ struct ServerInfo {
     pull_url: Url,           // request a file
     delete_url: Url,         // delete a file
     get_url: Url,            // request metadata about smh
+    list_url: Url,           // request metadata about smh
 }
 
 enum CreateStatus {
@@ -100,11 +101,12 @@ impl ServerInfo {
     pub async fn pull_file(
         &self,
         file_name: String,
-        username: String,
+        //username: String,
         password: String,
         key_pair: &ring::signature::RsaKeyPair,
     ) -> Result<(), String> {
-        let hash_name = hash_password(username + &password, file_name.clone());
+        let hash_name = hash_password(password.clone(), file_name.clone());
+        println!("File name {}", hash_name);
 
         match reqwest::Client::new()
             .get(self.pull_url.clone())
@@ -116,27 +118,85 @@ impl ServerInfo {
         {
             Ok(response) => {
                 println!("Got, Statuscode: {}", response.status());
-                let file_data = serde_json::from_str::<FileData>(
-                    &response
-                        .text()
-                        .await
-                        .map_err(|e| format!("Error reading data, {}", e))?,
-                )
-                .map_err(|e| format!("Error parsing data, {}", e))?;
 
-                let decrypted_bytes = decrypt_bytes(file_data.contents, password, file_data.nonce)?;
+                if let Some((file_data, tree)) = response
+                    .json::<Option<(FileData, types::MerkleData)>>()
+                    .await
+                    .map_err(|e| format!("Error reading json {}", e))?
+                {
+                    let mut hash = ring::digest::digest(&ring::digest::SHA256, &file_data.contents);
 
-                let signature = crypto::sign_file(&decrypted_bytes, file_name.as_bytes(), key_pair).map_err(|_e| String::from("Error verifying signature"))?;
-                if signature != file_data.signature {
-                    return Err(String::from("Invalid signature"));
+                    for (side, tree_hash) in tree.hashes {
+                        let rhs = hash.as_ref();
+                        let lhs = tree_hash;
+
+                        let mut concat = if side == types::Side::Left {
+                            lhs.to_vec()
+                        } else {
+                            rhs.to_vec()
+                        };
+
+                        concat.extend_from_slice(if side == types::Side::Left {
+                            &rhs
+                        } else {
+                            &lhs
+                        });
+
+                        hash = ring::digest::digest(&ring::digest::SHA256, &concat[..]);
+                        println!("{:?}", hash.as_ref())
+                    }
+                    println!(">> {:?}",  tree.top_hash);
+
+                    if hash.as_ref() != tree.top_hash {
+                        return Err(String::from("Invalid hash"));
+                    }
+
+                    let decrypted_bytes =
+                        decrypt_bytes(file_data.contents, password, file_data.nonce)?;
+
+                    let signature =
+                        crypto::sign_file(&decrypted_bytes, file_name.as_bytes(), key_pair)
+                            .map_err(|_e| String::from("Error verifying signature"))?;
+
+                    if signature != file_data.signature {
+                        return Err(String::from("Invalid signature"));
+                    }
+
+                    let mut file = File::create(file_name)
+                        .map_err(|e| format!("Error creating file, {}", e))?;
+
+                    file.write_all(&decrypted_bytes)
+                        .map_err(|e| format!("Error writing file, {}", e))?;
+
+                    Ok(())
+                } else {
+                    Err(String::from("No data"))
                 }
-                
-                let mut file =
-                    File::create(file_name).map_err(|e| format!("Error creating file, {}", e))?;
+            }
+            Err(error) => Err(ServerInfo::get_error_text(error)),
+        }
+    }
 
-                file.write_all(&decrypted_bytes)
-                    .map_err(|e| format!("Error writing file, {}", e))?;
-
+    pub async fn list_files(&self, password: String) -> Result<(), String> {
+        match reqwest::Client::new()
+            .get(self.list_url.clone())
+            .send()
+            .await
+        {
+            Ok(response) => {
+                let resp = response
+                    .json::<types::FileList>()
+                    .await
+                    .map_err(|e| format!("Error parsing response {}", e))?;
+                for file in resp.list {
+                    if let Ok(file_name_byte_array) =
+                        decrypt_bytes(file.name, password.clone(), file.name_nonce)
+                    {
+                        if let Ok(file_name) = std::str::from_utf8(&file_name_byte_array) {
+                            println!("{}", file_name);
+                        }
+                    }
+                }
                 Ok(())
             }
             Err(error) => Err(ServerInfo::get_error_text(error)),
@@ -146,7 +206,7 @@ impl ServerInfo {
     pub async fn push_file(
         &self,
         path: &Path,
-        username: String,
+        //username: String,
         password: String,
         key_pair: &ring::signature::RsaKeyPair,
     ) -> Result<(), String> {
@@ -162,14 +222,15 @@ impl ServerInfo {
         file.read_to_end(&mut buffer)
             .map_err(|_| String::from("Error reading file"))?; // TODO ADD ENCRYPTION
 
-        let signature = crypto::sign_file(&buffer, file_name.as_bytes(), key_pair).map_err(|e| String::from("Error signing file"))?;
+        let signature = crypto::sign_file(&buffer, file_name.as_bytes(), key_pair)
+            .map_err(|_e| String::from("Error signing file"))?;
 
         let (nonce, encrypted_file) = crypto::encrypt_bytes(buffer, password.clone())?;
         let (nonce_name, encrypted_file_name) =
             crypto::encrypt_bytes(file_name.as_bytes().to_vec(), password.clone())?;
 
-        // salt is username + password to make sure that storing a file with the same file_name as password will not give the same hash as the password hash
-        let hash_name = hash_password(username + &password, file_name);
+        let hash_name = hash_password(password.clone(), file_name);
+        println!("File name {}", hash_name);
 
         match reqwest::Client::new()
             .post(self.push_url.clone())
@@ -179,7 +240,7 @@ impl ServerInfo {
                 nonce,
                 name_nonce: nonce_name,
                 name_hash: hash_name,
-                signature
+                signature,
             })
             .send()
             .await
@@ -205,19 +266,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         get_url: Url::parse(&format!("{}/get", main_url))?,
         login_url: Url::parse(&format!("{}/login", main_url))?,
         create_account_url: Url::parse(&format!("{}/create", main_url))?,
+        list_url: Url::parse(&format!("{}/list", main_url))?,
     };
 
     let key_path = Path::new("test-rsa-key.pk8");
     let keypair_unchecked = crypto::get_key_pair(key_path);
     if keypair_unchecked.is_err() {
-        println!("Error getting keypair at {}", key_path.as_os_str().to_str().unwrap_or_else(|| "ERROR"));
+        println!(
+            "Error getting keypair at {}",
+            key_path.as_os_str().to_str().unwrap_or_else(|| "ERROR")
+        );
         exit(1);
     }
     let keypair = keypair_unchecked.unwrap();
 
     let mut buffer = String::new();
-    let mut username = String::from("admin");
-    let mut userpassword = String::from("hunter2");
+    //let mut username = String::from("admin");
+
+    let userpassword = String::from("hunter42");
+
+    // password is used as salt and cant be shorter than 8 characters
+    if userpassword.len() < 8 {
+        println!("Too short password");
+        exit(1);
+    }
+
     /*println!("{}", format!("Login or Create account at {}", main_url));
 
     let mut username = String::new();
@@ -271,7 +344,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("Invalid prefix")
                 }
             },
-            _ => match &buffer[0..] {
+            _ => match &buffer.trim()[0..] {
                 "exit" | "quit" | "q" => {
                     exit(0);
                 }
@@ -290,7 +363,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some((prefix, data)) => match prefix {
                 "pull" => {
                     if let Err(msg) = site
-                        .pull_file(data.to_string(), username.clone(), userpassword.clone(),&keypair)
+                        .pull_file(
+                            data.to_string(),
+                            //username.clone(),
+                            userpassword.clone(),
+                            &keypair,
+                        )
                         .await
                     {
                         println!("{}", msg)
@@ -300,7 +378,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Err(msg) = site
                         .push_file(
                             Path::new(data.trim()),
-                            username.clone(),
+                            //username.clone(),
                             userpassword.clone(),
                             &keypair,
                         )
@@ -313,9 +391,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("Invalid prefix")
                 }
             },
-            _ => match &buffer[0..] {
+            _ => match &buffer.trim()[0..] {
                 "list" => {
-                    todo!("List all files")
+                    if let Err(msg) = site.list_files(userpassword.clone()).await {
+                        println!("{}", msg)
+                    }
                 }
                 "exit" | "quit" | "q" => {
                     exit(0);

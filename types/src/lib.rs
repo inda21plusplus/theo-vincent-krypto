@@ -52,7 +52,7 @@ pub struct MerkleData {
 }
 
 /// The side to append the given hash to
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Side {
     Left,
     Right,
