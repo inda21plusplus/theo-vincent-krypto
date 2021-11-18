@@ -33,8 +33,7 @@ fn pull(
     let mut lock = db.lock().unwrap();
     let info = info.into_inner();
     let file = lock.get_file(info.clone());
-    let data = lock.get_merkle_data(&info.name_hash).unwrap();
-    Json(file.map(|x| (x, data)))
+    Json(file.and_then(|x| lock.get_merkle_data(&info.name_hash).map(|data| (x, data))))
 }
 
 #[get("/list")]

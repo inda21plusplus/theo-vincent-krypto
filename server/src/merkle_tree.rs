@@ -210,17 +210,33 @@ impl Node {
 
     pub fn get_hashes_for_file(&self, id: u64, v: &mut Vec<(Side, Digest)>) {
         match self {
-            Node::Branch { left, right, .. } => match id & 1 {
-                0 => {
-                    v.push((Side::Right, right.digest().clone()));
-                    left.get_hashes_for_file(id >> 1, v)
+            Node::Branch { left, right, .. } => {
+                println!("self: {:?}", self.digest());
+                println!("left: {:?}", left.digest());
+                println!("right: {:?}", right.digest());
+                let mut concat = left.hash_bytes().to_vec();
+                concat.extend_from_slice(right.hash_bytes());
+                let hash = digest(&SHA256, &concat[..]);
+
+                println!(
+                    "left + right == self? {}",
+                    hash.as_ref() == self.digest().as_ref()
+                );
+                println!();
+                match id & 1 {
+                    0 => {
+                        println!("went left");
+                        v.push((Side::Right, right.digest().clone()));
+                        left.get_hashes_for_file(id >> 1, v)
+                    }
+                    1 => {
+                        println!("went right");
+                        v.push((Side::Left, left.digest().clone()));
+                        right.get_hashes_for_file(id >> 1, v)
+                    }
+                    _ => unreachable!(),
                 }
-                1 => {
-                    v.push((Side::Left, left.digest().clone()));
-                    right.get_hashes_for_file(id >> 1, v)
-                }
-                _ => unreachable!(),
-            },
+            }
             Node::Leaf { .. } => {}
         }
     }

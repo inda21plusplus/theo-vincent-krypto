@@ -112,17 +112,14 @@ impl RawFile {
         let mut f = fs::File::open(&path)?;
         f.read_to_end(&mut buf)?;
 
-        std::mem::replace(
-            self,
-            RawFile::Memory(MemoryFile {
-                name_nonce,
-                name,
-                name_hash,
-                nonce,
-                signature,
-                contents: buf,
-            }),
-        );
+        *self = RawFile::Memory(MemoryFile {
+            name_nonce,
+            name,
+            name_hash,
+            nonce,
+            signature,
+            contents: buf,
+        });
 
         match self {
             RawFile::Memory(mf) => Ok(&*mf),
@@ -156,17 +153,14 @@ impl RawFile {
             ..
         } = mf.clone();
 
-        std::mem::replace(
-            self,
-            RawFile::Disk(PersistentFile {
-                name_nonce,
-                name,
-                name_hash,
-                path,
-                nonce,
-                signature,
-            }),
-        );
+        *self = RawFile::Disk(PersistentFile {
+            name_nonce,
+            name,
+            name_hash,
+            path,
+            nonce,
+            signature,
+        });
 
         Ok(())
     }
